@@ -1,5 +1,5 @@
-Stream2Chromecast
-=================
+Stream2Chromecast GUI
+=====================
 
 $ python ./cc.py
 
