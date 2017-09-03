@@ -15,19 +15,103 @@ from kivy.uix.filechooser import FileChooserListView
 from os.path import sep, expanduser, isdir, dirname
 from functools import partial
 import platform, os, stream2chromecast
+from threading import Thread
+from collections import namedtuple
+from kivy.config import Config
+import atexit
+import sys
+
+Config.set('kivy', 'exit_on_escape', '0')
 
 devices = []
+cdevice = ''
 csystem = platform.system()
 
+def exit_handler():
+	print ('EXIT')
+
+#
+# Start Cast (button)
+#
 class StartCastButton(Widget):
-	waiting_devices_popup = Popup(title = 'Choose a device', content=Label(text='Loading devices... Please wait'), auto_dismiss=False)
+	def get_waiting_devices_popup(self):
+		return Popup(title = 'Choose a device', content=Label(text='Searching for devices, please wait...'), auto_dismiss=False)
+
+	def get_casting_popup(self):
+		return Popup(title = 'Cast', content=Label(text='Casting...'), auto_dismiss=False)
 
 	def cancel_cast(self, instance):
 		self.waiting_devices_popup.dismiss()
 
-	def start_cast_on_device(self, chosenFile, device, instance):
-		print (device)
+	def play_cast(self, chosenFile, device):
 		stream2chromecast.play(chosenFile, False, None, None, None, 0, device[0], None, None, None, None)
+
+	def stop_cast_on_device(self, device, instance):
+		stream2chromecast.stop(device[0])
+		sys.exit()
+		#self.cthread.end()
+		#self.casting_popup.dismiss()
+		#self.waiting_devices_popup.dismiss()
+
+	def unpause_cast_on_device(self, device, instance):
+		stream2chromecast.unpause(device[0])
+
+	def pause_cast_on_device(self, device, instance):
+		stream2chromecast.pause(device[0])
+
+	def volume_up_on_device(self, device, instance):
+		stream2chromecast.volume_up(device[0])
+
+	def volume_down_on_device(self, device, instance):
+		stream2chromecast.volume_down(device[0])
+
+	def play_cast_on_device(self, chosenFile, device, instance):
+		self.cthread = cthread = Thread(target=self.play_cast, args=(chosenFile, device,))
+		self.cthread.start()
+
+	def start_cast_on_device(self, chosenFile, device, instance):
+		cdevice = device[0]
+
+		print (device)
+		
+		self.casting_popup_content = GridLayout(cols=1)
+		self.casting_popup_content.add_widget(Label(text='Casting...'))
+
+		# Volume buttons
+		self.casting_popup_volume_buttons = GridLayout(cols=2)
+
+		self.casting_popup_volumedown_button = Button(text = 'Volume down')
+		self.casting_popup_volumedown_button.bind(on_press=partial(self.volume_down_on_device, device))
+		self.casting_popup_volume_buttons.add_widget(self.casting_popup_volumedown_button)
+
+		self.casting_popup_volumeup_button = Button(text = 'Volume up')
+		self.casting_popup_volumeup_button.bind(on_press=partial(self.volume_up_on_device, device))
+		self.casting_popup_volume_buttons.add_widget(self.casting_popup_volumeup_button)
+
+		self.casting_popup_content.add_widget(self.casting_popup_volume_buttons)
+
+		# Playback control buttons
+		self.casting_popup_playback_buttons = GridLayout(cols=3)
+		
+		self.casting_popup_pause_button = Button(text = 'Pause')
+		self.casting_popup_pause_button.bind(on_press=partial(self.pause_cast_on_device, device))
+		self.casting_popup_playback_buttons.add_widget(self.casting_popup_pause_button)
+		
+		self.casting_popup_continue_button = Button(text = 'Continue')
+		self.casting_popup_continue_button.bind(on_press=partial(self.unpause_cast_on_device, device))
+		self.casting_popup_playback_buttons.add_widget(self.casting_popup_continue_button)
+
+		self.casting_popup_stop_button = Button(text = 'Stop')
+		self.casting_popup_stop_button.bind(on_press=partial(self.stop_cast_on_device, device))
+		self.casting_popup_playback_buttons.add_widget(self.casting_popup_stop_button)
+
+		self.casting_popup_content.add_widget(self.casting_popup_playback_buttons)
+
+		# Play
+		self.casting_popup = self.get_casting_popup()
+		self.casting_popup.content = self.casting_popup_content
+		self.casting_popup.bind(on_open = partial(self.play_cast_on_device, chosenFile, device))
+		self.casting_popup.open()
 
 	def list_devices(self, chosenFile, instance):
 		devices = stream2chromecast.list_devices()
@@ -50,12 +134,18 @@ class StartCastButton(Widget):
 		print (chosenFile)
 
 		if chosenFile != '/':
+			self.waiting_devices_popup = self.get_waiting_devices_popup()
 			self.waiting_devices_popup.bind(on_open = partial(self.list_devices, chosenFile))
+			self.waiting_devices_popup.content = Label(text='Searching for devices, please wait...')
 			self.waiting_devices_popup.open()
+			
 			print ('cast... cast... cast...')
 
 		return True
 
+#
+# Start Screen
+#
 class FileScreen(GridLayout):
 	def __init__(self, **kwargs):
 		super(FileScreen, self).__init__(**kwargs)
@@ -73,7 +163,7 @@ class FileScreen(GridLayout):
 		self.add_widget(self.cast_button)
 
 		self.chosenFile = ''
-		self.fileChooser = FileChooserListView(path='/', size_hint=(1, 5), dirselect=False)
+		self.fileChooser = FileChooserListView(path='/home', size_hint=(1, 5), dirselect=False)
 		self.fileChooserPopup = fileChooserPopup = Popup(
 			title = 'Choose a file', 
 			content=Label(text='Loading files... Please wait'), 
@@ -105,9 +195,14 @@ class FileScreen(GridLayout):
 	def open_file_chooser(self, instance):
 		self.fileChooserPopup.open()
 
+#
+# App
+#
 class MyApp(App):
 		def build(self):
 			return FileScreen()
 
 if __name__ == '__main__':
 		MyApp().run()
+
+atexit.register(exit_handler)

@@ -639,7 +639,9 @@ def stop(device_name=None):
 
 def get_status(device_name=None):
     """ print the status of the chromecast device """
-    print CCMediaController(device_name=device_name).get_status()
+    status = CCMediaController(device_name=device_name).get_status()
+    print (status)
+    return status
 
 def volume_up(device_name=None):
     """ raise the volume by 0.1 """
