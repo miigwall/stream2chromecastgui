@@ -8,4 +8,4 @@ https://kivy.org/
 
 Work in progress
 
-![screenshot](https://github.com/miigwall/stream2chromecastgui/blob/master/screenshot.png?raw=true "Screenshot")
+![screenshot](https://github.com/miigwall/stream2chromecastgui/blob/7cfbbfecad21ac221516ae5c7e1e7bbb235326e0/screenshot.png?raw=true "Screenshot")
