@@ -2,7 +2,7 @@ import kivy
 
 kivy.require('1.0.6') # replace with your current kivy version !
 
-import platform, os, stream2chromecast, atexit, sys, os.path
+import platform, os, stream2chromecast, atexit, sys, os.path, magic
 
 from kivy.app import App
 from kivy.uix.gridlayout import GridLayout
@@ -13,6 +13,7 @@ from kivy.uix.textinput import TextInput
 from kivy.factory import Factory
 from kivy.uix.widget import Widget
 from kivy.properties import ListProperty, StringProperty, ObjectProperty
+from kivy.core.window import Window
 from kivy.clock import Clock
 from kivy.uix.filechooser import FileChooserListView
 from os.path import sep, expanduser, isdir, dirname
@@ -28,15 +29,30 @@ devices = []
 cdevice = ''
 csystem = platform.system()
 
-def exit_handler():
-	print ('EXIT')
+# Supported video formats (mimetypes)
+supported_mimetypes = [
+	'video/mp4', 
+	'video/x-msvideo', 
+	'video/x-ms-wmv', 
+	'video/x-matroska', 
+	'video/quicktime',
+	'video/mpeg',
+	'video/x-flv',
+	'video/x-m4v'
+]
 
-atexit.register(exit_handler)
+# Must transcode these video formats (mimetypes)
+supported_mimetypes_transcode = [
+	'video/x-msvideo',
+	'video/mpeg',
+	'video/x-flv'
+]
 
 #
 # Start Cast (button)
 #
 class StartCastButton(Widget):
+
 	def get_waiting_devices_popup(self):
 		return Popup(title = 'Choose a device', content=Label(text='Searching for devices, please wait...'), auto_dismiss=False)
 
@@ -47,12 +63,20 @@ class StartCastButton(Widget):
 		self.waiting_devices_popup.dismiss()
 
 	def play_cast(self, chosenFile, device):
-		stream2chromecast.play(chosenFile, False, None, None, None, 0, device[0], None, None, None, None)
+		self.chosenFileMimeType = magic.from_file(chosenFile, mime=True)
+		self.useTranscode = False
+
+		if (self.chosenFileMimeType in supported_mimetypes_transcode):
+			self.useTranscode = True
+
+		stream2chromecast.play(chosenFile, self.useTranscode, None, None, None, 0, device[0], None, None, None, None)
 
 	def stop_cast_on_device(self, device, instance):
+		# Stop casting
 		stream2chromecast.stop(device[0])
-		#sys.exit()
-		self.cthread.terminate()
+		
+		# Terminate casting process
+		self.cprocess.terminate()
 		self.casting_popup.dismiss()
 		self.waiting_devices_popup.dismiss()
 
@@ -69,8 +93,8 @@ class StartCastButton(Widget):
 		stream2chromecast.volume_down(device[0])
 
 	def play_cast_on_device(self, chosenFile, device, instance):
-		self.cthread = cthread = Process(target=self.play_cast, args=(chosenFile, device,))
-		self.cthread.start()
+		self.cprocess = cprocess = Process(target=self.play_cast, args=(chosenFile, device,))
+		self.cprocess.start()
 
 	def start_cast_on_device(self, chosenFile, device, instance):
 		cdevice = device[0]
@@ -84,11 +108,11 @@ class StartCastButton(Widget):
 		# Volume buttons
 		self.casting_popup_volume_buttons = GridLayout(cols=2)
 
-		self.casting_popup_volumedown_button = Button(text = 'Volume down', background_color=[2,1,2,1])
+		self.casting_popup_volumedown_button = Button(text='Volume down', background_color=[2,1,2,1])
 		self.casting_popup_volumedown_button.bind(on_press=partial(self.volume_down_on_device, device))
 		self.casting_popup_volume_buttons.add_widget(self.casting_popup_volumedown_button)
 
-		self.casting_popup_volumeup_button = Button(text = 'Volume up', background_color=[2,1,2,1])
+		self.casting_popup_volumeup_button = Button(text='Volume up', background_color=[2,1,2,1])
 		self.casting_popup_volumeup_button.bind(on_press=partial(self.volume_up_on_device, device))
 		self.casting_popup_volume_buttons.add_widget(self.casting_popup_volumeup_button)
 
@@ -97,15 +121,15 @@ class StartCastButton(Widget):
 		# Playback control buttons
 		self.casting_popup_playback_buttons = GridLayout(cols=3)
 		
-		self.casting_popup_pause_button = Button(text = 'Pause', background_color=[0,1,2,1])
+		self.casting_popup_pause_button = Button(text='Pause', background_color=[0,1,2,1])
 		self.casting_popup_pause_button.bind(on_press=partial(self.pause_cast_on_device, device))
 		self.casting_popup_playback_buttons.add_widget(self.casting_popup_pause_button)
 		
-		self.casting_popup_continue_button = Button(text = 'Continue', background_color=[0,1,2,1])
+		self.casting_popup_continue_button = Button(text='Continue', background_color=[0,1,2,1])
 		self.casting_popup_continue_button.bind(on_press=partial(self.unpause_cast_on_device, device))
 		self.casting_popup_playback_buttons.add_widget(self.casting_popup_continue_button)
 
-		self.casting_popup_stop_button = Button(text = 'Stop', background_color=[3,0,2,1])
+		self.casting_popup_stop_button = Button(text='Stop', background_color=[3,0,2,1])
 		self.casting_popup_stop_button.bind(on_press=partial(self.stop_cast_on_device, device))
 		self.casting_popup_playback_buttons.add_widget(self.casting_popup_stop_button)
 
@@ -152,7 +176,7 @@ class FileScreen(GridLayout):
 	def __init__(self, **kwargs):
 		super(FileScreen, self).__init__(**kwargs)
 
-		cb = StartCastButton()
+		Window.bind(on_dropfile=self.on_file_drop)
 
 		self.cols = 1
 		self.username = TextInput(multiline = False)
@@ -184,15 +208,37 @@ class FileScreen(GridLayout):
 		self.fileChooserPopupContent.add_widget(self.fileChooserChooseBtn)
 		self.fileChooserPopup.content = self.fileChooserPopupContent
 
-	def choose_file(self, instance):
+	def on_file_drop(self, window, droppedFilePath):
+		self.continue_to_find_devices(droppedFilePath, True)
+
+	def continue_to_find_devices(self, chosenFile, playNow):
 		cb = StartCastButton()
 
-		if len(self.fileChooser.selection) > 0 and os.path.isfile(self.fileChooser.selection[0]):
-			self.chosenFile = self.fileChooser.selection[0]
-			self.file_button.text = self.chosenFile
-			self.cast_button.text = 'Cast now'
-			self.cast_button.background_color = [0,2,0,1]
+		self.chosenFile = chosenFile
+		self.file_button.text = chosenFile
+		self.cast_button.text = 'Cast now'
+		self.cast_button.background_color = [0,2,0,1]
+
+		if (playNow == True):
+			cb.on_cast_start(self.chosenFile, None)
+		else:
 			self.cast_button.bind(on_press = partial(cb.on_cast_start, self.chosenFile))
+
+	def choose_file(self, instance):
+
+		# Check if some file was chosen
+		if len(self.fileChooser.selection) > 0 and os.path.isfile(self.fileChooser.selection[0]):
+			videoMimeType = magic.from_file(self.fileChooser.selection[0], mime=True)
+
+			# Check if file format is supported
+			if (videoMimeType in supported_mimetypes):
+				print ('Supported format: ' + videoMimeType)
+				self.continue_to_find_devices(self.fileChooser.selection[0], False)
+			else:
+				print ('Format ' + videoMimeType + ' is not supported')
+
+		else:
+			print ('No file')
 
 		print (self.chosenFile)
 
@@ -209,6 +255,11 @@ class MyApp(App):
 
 	def build(self):
 		return FileScreen()
+
+def exit_handler():
+	print ('EXIT')
+
+atexit.register(exit_handler)
 
 if __name__ == '__main__':
 	MyApp().run()
