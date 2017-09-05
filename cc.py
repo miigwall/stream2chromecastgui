@@ -26,8 +26,10 @@ from kivy.config import Config
 Config.set('kivy', 'exit_on_escape', '0')
 
 devices = []
-cdevice = ''
+cdevice = None
 csystem = platform.system()
+subtitlesPath = 'No subtitles'
+subtitlesLang = 'en'
 
 # Supported video formats (mimetypes)
 supported_mimetypes = [
@@ -38,7 +40,8 @@ supported_mimetypes = [
 	'video/quicktime',
 	'video/mpeg',
 	'video/x-flv',
-	'video/x-m4v'
+	'video/x-m4v',
+	'text/plain'
 ]
 
 # Must transcode these video formats (mimetypes)
@@ -48,11 +51,15 @@ supported_mimetypes_transcode = [
 	'video/x-flv'
 ]
 
+languages = [
+	['fi', 'Finnish'],
+	['en', 'English']
+]
+
 #
 # Start Cast (button)
 #
 class StartCastButton(Widget):
-
 	def get_waiting_devices_popup(self):
 		return Popup(title = 'Choose a device', content=Label(text='Searching for devices, please wait...'), auto_dismiss=False)
 
@@ -65,11 +72,15 @@ class StartCastButton(Widget):
 	def play_cast(self, chosenFile, device):
 		self.chosenFileMimeType = magic.from_file(chosenFile, mime=True)
 		self.useTranscode = False
+		self.subtitlesPath = None
+
+		if (subtitlesPath != None):
+			self.subtitlesPath = subtitlesPath
 
 		if (self.chosenFileMimeType in supported_mimetypes_transcode):
 			self.useTranscode = True
 
-		stream2chromecast.play(chosenFile, self.useTranscode, None, None, None, 0, device[0], None, None, None, None)
+		stream2chromecast.play(chosenFile, self.useTranscode, None, None, None, 0, device[0], None, self.subtitlesPath, None, subtitlesLang)
 
 	def stop_cast_on_device(self, device, instance):
 		# Stop casting
@@ -102,8 +113,13 @@ class StartCastButton(Widget):
 		print (device)
 		
 		self.casting_popup_content = GridLayout(cols=1)
-		self.casting_popup_content.add_widget(Label(text='Casting...'))
+		self.casting_popup_content.add_widget(Label(text='Casting...', text_size=(400, None), halign='center'))
 		self.casting_popup_content.add_widget(Label(text=chosenFile, text_size=(400, None), halign='center'))
+		self.casting_popup_content.add_widget(Label(
+			text='Subtitles: ' + subtitlesPath + ' (' + subtitlesLang + ')', 
+			text_size=(400, None), 
+			halign='center'
+		))
 
 		# Volume buttons
 		self.casting_popup_volume_buttons = GridLayout(cols=2)
@@ -208,35 +224,68 @@ class FileScreen(GridLayout):
 		self.fileChooserPopupContent.add_widget(self.fileChooserChooseBtn)
 		self.fileChooserPopup.content = self.fileChooserPopupContent
 
+	def get_subtitle_language_popup(self):
+		return Popup(title = 'Choose a subtitle language', content=Label(text='Getting languages...'), auto_dismiss=False)
+
+	def set_subtitle_language(self, language, instance):
+		global subtitlesLang
+
+		subtitlesLang = language[0]
+		self.subtitle_language_popup.dismiss()
+		print ("Subtitle language set to: " + language[1])
+
 	def on_file_drop(self, window, droppedFilePath):
 		self.continue_to_find_devices(droppedFilePath, True)
 
 	def continue_to_find_devices(self, chosenFile, playNow):
-		cb = StartCastButton()
+		global subtitlesPath
 
-		self.chosenFile = chosenFile
-		self.file_button.text = chosenFile
-		self.cast_button.text = 'Cast now'
-		self.cast_button.background_color = [0,2,0,1]
+		videoMimeType = magic.from_file(chosenFile, mime=True)
 
-		if (playNow == True):
-			cb.on_cast_start(self.chosenFile, None)
+		# Check if file format is supported
+		if (videoMimeType in supported_mimetypes):
+			print ('Supported format: ' + videoMimeType)
+
+			# Detect subtitles
+			if (videoMimeType == 'text/plain'):
+				subtitlesPath = chosenFile
+
+				# ToDo: Check here if she is currently casting... cannot add subtitles while casting
+				
+				self.subtitle_language_popup = self.get_subtitle_language_popup()
+				self.subtitle_language_popup_content = GridLayout(cols=1)
+
+				for language in languages:
+					subtitle_language_popup_language_button = Button(text = language[1], background_color=[0,1,2,1])
+					subtitle_language_popup_language_button.bind(on_press = partial(self.set_subtitle_language, language))
+					self.subtitle_language_popup_content.add_widget(subtitle_language_popup_language_button)
+
+				self.subtitle_language_popup_content.add_widget(Button(text = 'Choose', background_color=[0,2,0,1]))
+				self.subtitle_language_popup.content = self.subtitle_language_popup_content
+				self.subtitle_language_popup.open()
+
+				print ('Subtitle added')
+
+			else:
+				cb = StartCastButton()
+
+				self.chosenFile = chosenFile
+				self.file_button.text = chosenFile
+				self.cast_button.text = 'Cast now'
+				self.cast_button.background_color = [0,2,0,1]
+
+				if (playNow == True):
+					cb.on_cast_start(self.chosenFile, None)
+				else:
+					self.cast_button.bind(on_press = partial(cb.on_cast_start, self.chosenFile))
+
 		else:
-			self.cast_button.bind(on_press = partial(cb.on_cast_start, self.chosenFile))
+			print ('Format ' + videoMimeType + ' is not supported')
 
 	def choose_file(self, instance):
-
 		# Check if some file was chosen
 		if len(self.fileChooser.selection) > 0 and os.path.isfile(self.fileChooser.selection[0]):
-			videoMimeType = magic.from_file(self.fileChooser.selection[0], mime=True)
-
-			# Check if file format is supported
-			if (videoMimeType in supported_mimetypes):
-				print ('Supported format: ' + videoMimeType)
-				self.continue_to_find_devices(self.fileChooser.selection[0], False)
-			else:
-				print ('Format ' + videoMimeType + ' is not supported')
-
+			self.continue_to_find_devices(self.fileChooser.selection[0], False)
 		else:
 			print ('No file')
 
