@@ -1,5 +1,10 @@
-import kivy
+# GUI for Stream2chromecast
+#
+# Install packets using pip: 
+# $ sudo apt install python-pip
+# $ sudo pip install <package>
 
+import kivy
 kivy.require('1.0.6') # replace with your current kivy version !
 
 import platform, os, stream2chromecast, atexit, sys, os.path, magic
@@ -23,8 +28,10 @@ from multiprocessing import Process
 from collections import namedtuple
 from kivy.config import Config
 
+# Do not exit app if escape pressed
 Config.set('kivy', 'exit_on_escape', '0')
 
+# Global variables for saving data temporarily
 devices = []
 cdevice = None
 csystem = platform.system()
@@ -51,13 +58,14 @@ supported_mimetypes_transcode = [
 	'video/x-flv'
 ]
 
+# Supported languages for subtitles. The language format is defined by RFC 5646
 languages = [
 	['fi', 'Finnish'],
 	['en', 'English']
 ]
 
 #
-# Start Cast (button)
+# Casting
 #
 class StartCastButton(Widget):
 	def get_waiting_devices_popup(self):
@@ -83,6 +91,11 @@ class StartCastButton(Widget):
 		stream2chromecast.play(chosenFile, self.useTranscode, None, None, None, 0, device[0], None, self.subtitlesPath, None, subtitlesLang)
 
 	def stop_cast_on_device(self, device, instance):
+		global subtitlesPath, subtitlesLang
+
+		subtitlesPath = 'No subtitles'
+		subtitlesLang = 'en'
+
 		# Stop casting
 		stream2chromecast.stop(device[0])
 		
@@ -186,7 +199,7 @@ class StartCastButton(Widget):
 		return True
 
 #
-# Start Screen
+# Main screen
 #
 class FileScreen(GridLayout):
 	def __init__(self, **kwargs):
@@ -200,11 +213,17 @@ class FileScreen(GridLayout):
 		self.logo_text = Label(text='Stream2chromecast GUI', font_size = '30sp')
 		self.add_widget(self.logo_text)
 
-		self.file_button = Button(text = 'Choose a file...', background_color=[0,1,2,1], text_size=(400, None), halign='center')
+		self.video_file_label = Label(text='No video')
+		self.add_widget(self.video_file_label)
+
+		self.subtitle_file_label = Label(text='No subtitle file')
+		self.add_widget(self.subtitle_file_label)
+
+		self.file_button = Button(text = 'Browse files... (video and/or subtitles)', background_color=[0,1,2,1], text_size=(400, None), halign='center')
 		self.file_button.bind(on_press=self.open_file_chooser)
 		self.add_widget(self.file_button)
 
-		self.cast_button = Button(text = 'Cannot cast yet. Choose a file first!', background_color=[3,0,2,1])
+		self.cast_button = Button(text = 'Cannot cast! Browse or drag & drop video file first', background_color=[3,0,2,1])
 		self.add_widget(self.cast_button)
 
 		self.chosenFile = ''
@@ -232,6 +251,7 @@ class FileScreen(GridLayout):
 
 		subtitlesLang = language[0]
 		self.subtitle_language_popup.dismiss()
+		
 		print ("Subtitle language set to: " + language[1])
 
 	def on_file_drop(self, window, droppedFilePath):
@@ -249,6 +269,7 @@ class FileScreen(GridLayout):
 			# Detect subtitles
 			if (videoMimeType == 'text/plain'):
 				subtitlesPath = chosenFile
+				self.subtitle_file_label.text = chosenFile
 
 				# ToDo: Check here if she is currently casting... cannot add subtitles while casting
 				
@@ -270,7 +291,7 @@ class FileScreen(GridLayout):
 				cb = StartCastButton()
 
 				self.chosenFile = chosenFile
-				self.file_button.text = chosenFile
+				self.video_file_label.text = chosenFile
 				self.cast_button.text = 'Cast now'
 				self.cast_button.background_color = [0,2,0,1]
 
